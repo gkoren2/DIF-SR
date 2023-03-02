@@ -3,3 +3,4 @@ dataset/
 log/
 log_tensorboard/
 saved/
+slurm-*.out
