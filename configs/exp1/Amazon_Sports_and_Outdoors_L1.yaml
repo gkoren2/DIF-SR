@@ -5,7 +5,7 @@ seed: 212
 state: INFO
 reproducibility: True
 data_path: 'dataset/'
-checkpoint_dir: 'saved'
+checkpoint_dir: '/export/work/gkoren2/temp/difsr/exp1/sports_L1'
 show_progress: True
 save_dataset: False
 save_dataloaders: False
