@@ -478,8 +478,8 @@ class DIFMultiHeadAttention(nn.Module):
         pos_query_layer = self.transpose_for_scores(self.query_p(position_embedding))
         pos_key_layer = self.transpose_for_scores(self.key_p(position_embedding))
 
-        item_attention_scores = torch.matmul(item_query_layer, item_key_layer.transpose(-1, -2))
-        pos_scores = torch.matmul(pos_query_layer, pos_key_layer.transpose(-1, -2))
+        self.item_attention_scores = torch.matmul(item_query_layer, item_key_layer.transpose(-1, -2))
+        self.pos_scores = torch.matmul(pos_query_layer, pos_key_layer.transpose(-1, -2))
 
         attribute_attention_table = []
 
@@ -490,19 +490,19 @@ class DIFMultiHeadAttention(nn.Module):
             attribute_key_layer = self.transpose_for_scores_attribute(attribute_key(attribute_tensor),i)
             attribute_attention_scores = torch.matmul(attribute_query_layer, attribute_key_layer.transpose(-1, -2))
             attribute_attention_table.append(attribute_attention_scores.unsqueeze(-2))
-        attribute_attention_table = torch.cat(attribute_attention_table,dim=-2)
-        table_shape = attribute_attention_table.shape
+        self.attribute_attention_table = torch.cat(attribute_attention_table,dim=-2)
+        table_shape = self.attribute_attention_table.shape
         feat_atten_num, attention_size = table_shape[-2], table_shape[-1]
         if self.fusion_type == 'sum':
-            attention_scores = torch.sum(attribute_attention_table, dim=-2)
-            attention_scores = attention_scores + item_attention_scores + pos_scores
+            attention_scores = torch.sum(self.attribute_attention_table, dim=-2)
+            attention_scores = attention_scores + self.item_attention_scores + self.pos_scores
         elif self.fusion_type == 'concat':
-            attention_scores = attribute_attention_table.view(table_shape[:-2] + (feat_atten_num * attention_size,))
-            attention_scores = torch.cat([attention_scores, item_attention_scores, pos_scores], dim=-1)
+            attention_scores = self.attribute_attention_table.view(table_shape[:-2] + (feat_atten_num * attention_size,))
+            attention_scores = torch.cat([attention_scores, self.item_attention_scores, self.pos_scores], dim=-1)
             attention_scores = self.fusion_layer(attention_scores)
         elif self.fusion_type == 'gate':
             attention_scores = torch.cat(
-                [attribute_attention_table, item_attention_scores.unsqueeze(-2), pos_scores.unsqueeze(-2)], dim=-2)
+                [self.attribute_attention_table, self.item_attention_scores.unsqueeze(-2), self.pos_scores.unsqueeze(-2)], dim=-2)
             attention_scores,_ = self.fusion_layer(attention_scores)
 
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
