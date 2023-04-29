@@ -513,13 +513,13 @@ class DIFMultiHeadAttention(nn.Module):
         attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        self.attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
 
-        attention_probs = self.attn_dropout(attention_probs)
+        attention_probs = self.attn_dropout(self.attention_probs)
         context_layer = torch.matmul(attention_probs, item_value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)

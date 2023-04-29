@@ -157,8 +157,8 @@ class SASRecD(SequentialRecommender):
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
 
-        extended_attention_mask = self.get_attention_mask(item_seq)
-        trm_output = self.trm_encoder(input_emb,feature_emb,position_embedding, extended_attention_mask, output_all_encoded_layers=True)
+        self.extended_attention_mask = self.get_attention_mask(item_seq)
+        trm_output = self.trm_encoder(input_emb,feature_emb,position_embedding, self.extended_attention_mask, output_all_encoded_layers=True)
         output = trm_output[-1]
         seq_output = self.gather_indexes(output, item_seq_len - 1)
         return seq_output
