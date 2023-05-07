@@ -20,6 +20,64 @@ from recbole.model.layersx import *
 from recbole.model.loss import BPRLoss
 import copy
 
+
+
+class FeedForwardX(nn.Module):
+    """
+    Point-wise feed-forward layer is implemented by two dense layers.
+
+    Args:
+        input_tensor (torch.Tensor): the input of the point-wise feed-forward layer
+
+    Returns:
+        hidden_states (torch.Tensor): the output of the point-wise feed-forward layer
+
+    """
+
+    def __init__(self, hidden_size, inner_size, hidden_dropout_prob, hidden_act, layer_norm_eps):
+        super(FeedForwardX, self).__init__()
+        self.dense_1 = nn.Linear(hidden_size, inner_size)
+        self.intermediate_act_fn = self.get_hidden_act(hidden_act)
+
+        self.dense_2 = nn.Linear(inner_size, hidden_size)
+        self.LayerNorm = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
+        self.dropout = nn.Dropout(hidden_dropout_prob)
+
+    def get_hidden_act(self, act):
+        ACT2FN = {
+            "gelu": self.gelu,
+            "relu": ReLU,       #   fn.relu,
+            "swish": self.swish,
+            "tanh": torch.tanh,
+            "sigmoid": torch.sigmoid,
+        }
+        return ACT2FN[act]
+
+    def gelu(self, x):
+        """Implementation of the gelu activation function.
+
+        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results)::
+
+            0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
+        Also see https://arxiv.org/abs/1606.08415
+        """
+        return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+    def swish(self, x):
+        return x * torch.sigmoid(x)
+
+    def forward(self, input_tensor):
+        hidden_states = self.dense_1(input_tensor)
+        hidden_states = self.intermediate_act_fn(hidden_states)
+
+        hidden_states = self.dense_2(hidden_states)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+
+        return hidden_states
+
+
 class VanillaAttentionX(nn.Module):
     """
     Vanilla attention layer is implemented by linear layer.
@@ -187,16 +245,21 @@ class DIFTransformerLayerX(nn.Module):
         layer_norm_eps,fusion_type,max_len
     ):
         super(DIFTransformerLayerX, self).__init__()
-        self.multi_head_attention = DIFMultiHeadAttention(
+        self.multi_head_attention = DIFMultiHeadAttentionX(
             n_heads, hidden_size,attribute_hidden_size, feat_num, hidden_dropout_prob, attn_dropout_prob, layer_norm_eps,fusion_type,max_len,
         )
-        self.feed_forward = FeedForward(hidden_size, intermediate_size, hidden_dropout_prob, hidden_act, layer_norm_eps)
+        self.feed_forward = FeedForwardX(hidden_size, intermediate_size, hidden_dropout_prob, hidden_act, layer_norm_eps)
 
     def forward(self, hidden_states,attribute_embed,position_embedding, attention_mask):
         attention_output = self.multi_head_attention(hidden_states,attribute_embed,position_embedding, attention_mask)
         feedforward_output = self.feed_forward(attention_output)
         return feedforward_output
 
+    def relprop(self,cam,**kwargs):
+        cam = self.feed_forward.relprop(cam,**kwargs)
+        cam = self.multi_head_attention.relprop(cam,**kwargs)
+        return cam
+    
 
 class DIFTransformerEncoderX(nn.Module):
     r""" One decoupled TransformerEncoder consists of several decoupled TransformerLayers.
@@ -234,7 +297,7 @@ class DIFTransformerEncoderX(nn.Module):
     ):
 
         super(DIFTransformerEncoderX, self).__init__()
-        layer = DIFTransformerLayer(
+        layer = DIFTransformerLayerX(
             n_heads, hidden_size,attribute_hidden_size,feat_num, inner_size, hidden_dropout_prob, attn_dropout_prob, hidden_act, layer_norm_eps,fusion_type,max_len
         )
         self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(n_layers)])
@@ -261,6 +324,10 @@ class DIFTransformerEncoderX(nn.Module):
             all_encoder_layers.append(hidden_states)
         return all_encoder_layers
 
+    def relprop(self,cam,**kwargs):
+        for layer_module in reversed(self.layer):
+            cam = self.layer_module.relprop(self,cam,**kwargs)
+        return cam
 
 
 
@@ -304,7 +371,7 @@ class SASRecDX(SequentialRecommender):
             [copy.deepcopy(FeatureSeqEmbLayer(dataset,self.attribute_hidden_size[_],[self.selected_features[_]],self.pooling_mode,self.device)) for _
              in range(len(self.selected_features))])
 
-        self.trm_encoder = DIFTransformerEncoder(
+        self.trm_encoder = DIFTransformerEncoderX(
             n_layers=self.n_layers,
             n_heads=self.n_heads,
             hidden_size=self.hidden_size,
@@ -323,21 +390,21 @@ class SASRecDX(SequentialRecommender):
         for attribute in self.selected_features:
             self.n_attributes[attribute] = len(dataset.field2token_id[attribute])
         if self.attribute_predictor == 'MLP':
-            self.ap = nn.Sequential(nn.Linear(in_features=self.hidden_size,
+            self.ap = nn.Sequential(Linear(in_features=self.hidden_size,
                                                        out_features=self.hidden_size),
-                                             nn.BatchNorm1d(num_features=self.hidden_size),
-                                             nn.ReLU(),
+                                             BatchNorm1d(num_features=self.hidden_size),
+                                             ReLU(),
                                              # final logits
-                                             nn.Linear(in_features=self.hidden_size,
+                                             Linear(in_features=self.hidden_size,
                                                        out_features=self.n_attributes)
                                              )
         elif self.attribute_predictor == 'linear':
             self.ap = nn.ModuleList(
-                [copy.deepcopy(nn.Linear(in_features=self.hidden_size, out_features=self.n_attributes[_]))
+                [copy.deepcopy(Linear(in_features=self.hidden_size, out_features=self.n_attributes[_]))
                  for _ in self.selected_features])
 
-        self.LayerNorm = nn.LayerNorm(self.hidden_size, eps=self.layer_norm_eps)
-        self.dropout = nn.Dropout(self.hidden_dropout_prob)
+        self.LayerNorm = LayerNorm(self.hidden_size, eps=self.layer_norm_eps)
+        self.dropout = Dropout(self.hidden_dropout_prob)
 
         if self.loss_type == 'BPR':
             self.loss_fct = BPRLoss()
@@ -471,3 +538,11 @@ class SASRecDX(SequentialRecommender):
         test_items_emb = self.item_embedding.weight
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B, item_num]
         return scores
+    
+
+    def relprop(self,cam=None, **kwargs):
+        cam = self.trm_encoder.relprop(cam,**kwargs)
+        cam = self.dropout.relprop(cam, **kwargs)
+        cam = self.LayerNorm.relprop(cam, **kwargs)
+        return cam
+    

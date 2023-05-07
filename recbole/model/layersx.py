@@ -216,6 +216,20 @@ class BatchNorm2d(nn.BatchNorm2d, RelProp):
         return R
 
 
+class BatchNorm1d(nn.BatchNorm1d, RelProp):
+    def relprop(self, R, alpha):
+        # TODO : the required adaptation to make it work for BatchNorm1D
+        X = self.X
+        beta = 1 - alpha
+        weight = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3) / (
+            (self.running_var.unsqueeze(0).unsqueeze(2).unsqueeze(3).pow(2) + self.eps).pow(0.5))
+        Z = X * weight + 1e-9
+        S = R / Z
+        Ca = S * weight
+        R = self.X * (Ca)
+        return R
+
+
 class Linear(nn.Linear, RelProp):
     def relprop(self, R, alpha):
         beta = alpha - 1

@@ -18,3 +18,4 @@ from recbole.model.sequential_recommender.srgnn import SRGNN
 from recbole.model.sequential_recommender.stamp import STAMP
 from recbole.model.sequential_recommender.transrec import TransRec
 from recbole.model.sequential_recommender.sasrecd import SASRecD
+from recbole.model.sequential_recommender.sasrecdx2 import SASRecDX
