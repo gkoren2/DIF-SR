@@ -20,14 +20,14 @@ from recbole.model.loss import BPRLoss
 import copy
 
 
-class SASRecDX(SequentialRecommender):
+class SASRecDX2(SequentialRecommender):
     """
     DIF-SR moves the side information from the input to the attention layer and decouples the attention calculation of
     various side information and item representation
     """
 
     def __init__(self, config, dataset):
-        super(SASRecDX, self).__init__(config, dataset)
+        super(SASRecDX2, self).__init__(config, dataset)
 
         # load parameters info
         self.n_layers = config['n_layers']
@@ -230,10 +230,13 @@ class SASRecDX(SequentialRecommender):
 
 
     def interpret(self,interaction,index=None,start_layer=0):
-        item_seq = interaction[self.ITEM_SEQ]
-        device = item_seq.device
+        device = self.device
+        item_seq = interaction[self.ITEM_SEQ].to(device)
         batch_size = interaction.length
-        item_seq_len = interaction[self.ITEM_SEQ_LEN]
+        # currently supporting only single interaction
+        if batch_size>1:
+            return None,None        
+        item_seq_len = interaction[self.ITEM_SEQ_LEN].to(device)
         seq_output = self.forward(item_seq, item_seq_len)
         item_embeddings = self.item_embedding.weight
         scores = torch.matmul(seq_output, item_embeddings.transpose(0, 1))  # [B, item_num]
@@ -244,7 +247,7 @@ class SASRecDX(SequentialRecommender):
         one_hot[torch.arange(scores.shape[0]), index] = 1
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         one_hot = torch.sum(one_hot.cuda(device) * scores)
-        # self.zero_grad()        # why do we need it ? 
+        self.zero_grad()        # why do we need it ? 
 
         attn_blocks = list(dict(self.trm_encoder.layer.named_children()).values())
 
@@ -261,13 +264,18 @@ class SASRecDX(SequentialRecommender):
                 continue
             grad = torch.autograd.grad(one_hot, [blk.multi_head_attention.attention_probs], retain_graph=True)[0].detach()
             cam = blk.multi_head_attention.attention_probs.detach()
+            # average heads (rule 5) - in the following 5 rows
             cam = cam.reshape(-1, cam.shape[-1], cam.shape[-1])
             grad = grad.reshape(-1, grad.shape[-1], grad.shape[-1])
             cam = grad * cam
             cam = cam.reshape(batch_size, -1, cam.shape[-1], cam.shape[-1])
             cam = cam.clamp(min=0).mean(dim=1)
+            # where is the avergaing across head done ? is it by the torch.bmm ? no
+            # apply rule #6:
             R_item = R_item + torch.bmm(cam, R_item)
         expl = R_item
-        expl[:, 0, 0] = expl[:, 0].min()
-        expl = expl[:,0]
+        # since we're looking at the embedding of the last item <item_seq_len-1> as predictor for the next, 
+        # we extract the attention w.r.t that item
+        expl[:, item_seq_len-1, item_seq_len-1] = expl[:, item_seq_len-1].min()
+        expl = expl[:,item_seq_len-1]
         return scores,expl
