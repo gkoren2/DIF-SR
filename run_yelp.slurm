@@ -9,5 +9,5 @@ cd /home/gkoren2/code/git/gkoren2/DIF-SR
 
 
 # yelp
-python run_recbole.py --gpu_id=0 --model=SASRecD --dataset='yelp' --config_files='configs/exp1/yelp.yaml'
-python run_recbole.py --gpu_id=0 --model=SASRecD --dataset='yelp' --config_files='configs/exp1/yelp_L1.yaml'
+python run_recbole.py --gpu_id=2 --model=SASRecDX2 --dataset='yelp' --config_files='configs/exp5/yelp_cat_city.yaml' --seed=5678
+python run_recbole.py --gpu_id=3 --model=SASRecDX2 --dataset='yelp' --config_files='configs/exp5/yelp_cat_city.yaml' --seed=17028

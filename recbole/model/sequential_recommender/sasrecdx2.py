@@ -263,6 +263,10 @@ class SASRecDX2(SequentialRecommender):
             if i < start_layer:
                 continue
             grad = torch.autograd.grad(one_hot, [blk.multi_head_attention.attention_probs], retain_graph=True)[0].detach()
+            # for some reason that is yet to be understood, almost all the relevant gradients are negative
+            # since there's no risk of cancelling positive and negative values, we can safely turn them all to positive
+            # by negating the result: this is temporal hack. maybe we need to take the sign later into account
+            grad = -grad
             cam = blk.multi_head_attention.attention_probs.detach()
             # average heads (rule 5) - in the following 5 rows
             cam = cam.reshape(-1, cam.shape[-1], cam.shape[-1])
@@ -270,7 +274,6 @@ class SASRecDX2(SequentialRecommender):
             cam = grad * cam
             cam = cam.reshape(batch_size, -1, cam.shape[-1], cam.shape[-1])
             cam = cam.clamp(min=0).mean(dim=1)
-            # where is the avergaing across head done ? is it by the torch.bmm ? no
             # apply rule #6:
             R_item = R_item + torch.bmm(cam, R_item)
         expl = R_item
