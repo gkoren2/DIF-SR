@@ -107,6 +107,8 @@ class SASRecDX2(SequentialRecommender):
         self.apply(self._init_weights)
         self.other_parameter_name = ['feature_embed_layer_list']
 
+        self.relevancy_map = None       # place to save the last relevancy map produced by the interpret method
+
     def _init_weights(self, module):
         """ Initialize the weights """
         if isinstance(module, (nn.Linear, nn.Embedding)):
@@ -276,7 +278,7 @@ class SASRecDX2(SequentialRecommender):
             cam = cam.clamp(min=0).mean(dim=1)
             # apply rule #6:
             R_item = R_item + torch.bmm(cam, R_item)
-        expl = R_item
+        self.relevancy_map = expl = R_item
         # since we're looking at the embedding of the last item <item_seq_len-1> as predictor for the next, 
         # we extract the attention w.r.t that item
         expl[:, item_seq_len-1, item_seq_len-1] = expl[:, item_seq_len-1].min()
